@@ -20,6 +20,11 @@ from q2_types.feature_data import (
     AlignedProteinFASTAFormat,
     FASTAFormat
 )
+from .types import (
+    Orthogroups,
+    DNASequences,
+    ProteinSequences,
+)
 from qiime2 import get_cache
 
 
@@ -193,9 +198,9 @@ def mafft_add(alignment: Union[AlignedDNAFASTAFormat,
               sequences: Union[DNAFASTAFormat, ProteinFASTAFormat],
               n_threads: int = 1,
               parttree: bool = False,
+              large: bool = False,
               addfragments: bool = False,
-              keeplength: bool = False,
-              large: bool = False) -> FASTAFormat:
+              keeplength: bool = False) -> FASTAFormat:
     _validate_sequence_pair(alignment, sequences)
 
     sequence_type = SequenceType.NUCLEOTIDE
@@ -208,3 +213,42 @@ def mafft_add(alignment: Union[AlignedDNAFASTAFormat,
     return _mafft(
         sequences_fp, alignment_fp, n_threads, parttree, addfragments,
         keeplength, large, sequence_type)
+
+
+def align_orthogroups(
+        ctx,
+        sequence_sets,
+        n_threads=1,
+        parttree=False,
+        large=False,
+        num_partitions=None):
+    if sequence_sets.type <= Orthogroups[DNASequences]:
+        partition_action_name = "partition_orthogroup_dna_sequences"
+    elif sequence_sets.type <= Orthogroups[ProteinSequences]:
+        partition_action_name = "partition_orthogroup_protein_sequences"
+
+    collate_orthogroup_msas = ctx.get_action(
+        "alignment", "collate_orthogroup_msas"
+    )
+    partition_orthogroup_sequences = ctx.get_action(
+        "alignment", partition_action_name
+    )
+
+    results = []
+    (partitioned_orthogroup_sequences,) = partition_orthogroup_sequences(
+        sequence_sets,
+        num_partitions,
+    )
+    for sequence_set in partitioned_orthogroup_sequences.values():
+        sequence_set_fp = str(sequence_set)
+        mafft_result = mafft(
+            sequence_set_fp,
+            n_threads,
+            parttree,
+            large,
+        )
+        results.append(mafft_result)
+
+    (collated_results,) = collate_orthogroup_msas(results)
+
+    return collated_results

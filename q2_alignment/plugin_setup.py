@@ -7,11 +7,15 @@
 # ----------------------------------------------------------------------------
 
 from q2_types.feature_data import (
-    AlignedProteinSequence,
-    AlignedSequence,
     FeatureData,
-    ProteinSequence,
     Sequence,
+    AlignedSequence,
+    ProteinSequence,
+    AlignedProteinSequence,
+)
+from q2_types.genome_data import (
+    GenesDirectoryFormat,
+    ProteinsDirectoryFormat,
 )
 from qiime2.plugin import (
     Bool,
@@ -23,7 +27,20 @@ from qiime2.plugin import (
     TypeMap,
     TypeMatch
 )
-
+from qiime2.plugin import (
+    Int,
+    Collection,
+)
+from q2_alignment import (
+    AlignedGenes,
+    AlignedProteins,
+    SequenceType,
+    DNASequences,
+    AlignedDNASequences,
+    ProteinSequences,
+    AlignedProteinSequences,
+    Orthogroups,
+)
 import importlib
 import q2_alignment
 
@@ -39,6 +56,50 @@ T_MatchAlignedSequenceType = TypeMatch([
     FeatureData[AlignedProteinSequence],
 ])
 
+T_GenericSequenceSetsInput, T_GenericAlignedSequenceSetsOutput = TypeMap({
+    Orthogroups[DNASequences]:
+        Orthogroups[AlignedDNASequences],
+    Orthogroups[ProteinSequences]:
+        Orthogroups[AlignedProteinSequences],
+})
+
+T_GenericSequenceSetsInput, T_GenericAlignedSequenceSetsOutput = TypeMap({
+    Orthogroups[DNASequences]:
+        Orthogroups[AlignedDNASequences],
+    Orthogroups[ProteinSequences]:
+        Orthogroups[AlignedProteinSequences],
+})
+
+T_MatchAlignedSequenceSets = TypeMatch([
+    Orthogroups[AlignedDNASequences],
+    Orthogroups[AlignedProteinSequences],
+])
+
+partition_params = {"num_partitions": Int % Range(1, None)}
+partition_param_descriptions = {
+    "num_partitions": (
+        "The number of partitions to split the sequence sets"
+        "into."
+    )
+}
+
+mafft_params = {
+    "n_threads": Threads,
+    "parttree": Bool,
+    "large": Bool
+}
+mafft_param_descriptions = {
+    "n_threads": "The number of threads. (Use `auto` to automatically use "
+                 "all available cores)",
+    "parttree": "This flag is required if the number of sequences being "
+                "aligned are larger than 1,000,000. Disabled by default.",
+    "large": "This flag is required when aligning very large datasets "
+             "that do not otherwise fit into memory. Temporary data is "
+             "then stored in files, instead of RAM. The --use-cache "
+             "flag specifies the storage location of the temporary files "
+             "created. By default, $TMP/qiime2/ is used.",
+}
+
 citations = Citations.load('citations.bib', package='q2_alignment')
 plugin = Plugin(
     name='alignment',
@@ -51,23 +112,82 @@ plugin = Plugin(
 )
 
 plugin.methods.register_function(
+    function=q2_alignment.partition.partition_orthogroup_dna_sequences,
+    inputs={"sequence_sets": Orthogroups[DNASequences]},
+    parameters={**partition_params},
+    outputs={"partitioned_sequence_sets":
+             Collection[Orthogroups[DNASequences]]},
+    name="Collates multiple alignment directories into one.",
+    description="Collates multiple alignment directories into one.",
+    parameter_descriptions={
+        **partition_param_descriptions,
+    },
+    output_descriptions={
+        'partitioned_sequence_sets': 'A set of MSAs divided into partitions.'
+    },
+)
+
+plugin.methods.register_function(
+    function=q2_alignment.partition.partition_orthogroup_protein_sequences,
+    inputs={"sequence_sets": Orthogroups[ProteinSequences]},
+    parameters={**partition_params},
+    outputs={"partitioned_sequence_sets":
+             Collection[Orthogroups[ProteinSequences]]},
+    name="Collates multiple alignment directories into one.",
+    description="Collates multiple alignment directories into one.",
+    parameter_descriptions={
+        **partition_param_descriptions,
+    },
+    output_descriptions={
+        'partitioned_sequence_sets': 'A set of MSAs divided into partitions.'
+    },
+)
+
+plugin.methods.register_function(
+    function=q2_alignment.partition.collate_orthogroup_msas,
+    inputs={"alignment_sets": Collection[T_MatchAlignedSequenceSets]},
+    parameters={},
+    outputs={"collated_alignments": T_MatchAlignedSequenceSets},
+    name="Collates multiple alignment directories into one.",
+    description="Collates multiple alignment directories into one.",
+    input_descriptions={
+        'alignment_sets': 'Set(s) of multiple sequence alignments (MSAs).'
+    },
+    output_descriptions={
+        'collated_alignments': 'A collated set of MSAs.'
+    },
+)
+
+plugin.pipelines.register_function(
+    function=q2_alignment.align_orthogroups,
+    inputs={'sequence_sets': T_GenericSequenceSetsInput},
+    parameters={
+        **mafft_params,
+        **partition_params
+    },
+    outputs=[('alignment', T_GenericAlignedSequenceSetsOutput)],
+    input_descriptions={
+        'sequence_sets': 'The set of orthogroup sequences to be aligned.'
+    },
+    parameter_descriptions={
+        **mafft_param_descriptions,
+        **partition_param_descriptions
+    },
+    output_descriptions={'alignment': 'The aligned sequences.'},
+    name='Perform de novo multiple sequence alignment using MAFFT on a set of '
+         'orthogroup sequences.',
+    description='Perform de novo multiple sequence alignment using MAFFT on a '
+                'set of orthogroup sequences.',
+    citations=[citations['katoh2013mafft']]
+)
+
+plugin.methods.register_function(
     function=q2_alignment.mafft,
     inputs={'sequences': T_GenericSequenceInput},
-    parameters={'n_threads': Threads,
-                'parttree': Bool,
-                'large': Bool},
+    parameters={**mafft_params},
     outputs=[('alignment', T_GenericAlignedSequenceOutput)],
     input_descriptions={'sequences': 'The sequences to be aligned.'},
-    parameter_descriptions={
-        'n_threads': 'The number of threads. (Use `auto` to automatically use '
-                     'all available cores)',
-        'parttree': 'This flag is required if the number of sequences being '
-                    'aligned are larger than 1000000. Disabled by default',
-        'large': 'This flag is required when aligning very large datasets '
-                 'that do not otherwise fit into memory. Temporary data is '
-                 'then stored in files, instead of RAM. The --use-cache '
-                 'flag specifies the storage location of the temporary files '
-                 'created. By default, $TMP/qiime2/ is used.'},
+    parameter_descriptions={**mafft_param_descriptions},
     output_descriptions={'alignment': 'The aligned sequences.'},
     name='De novo multiple sequence alignment with MAFFT',
     description=("Perform de novo multiple sequence alignment using MAFFT."),
@@ -81,20 +201,15 @@ plugin.methods.register_function(
             FeatureData[AlignedProteinSequence]
             ),
             'sequences': T_GenericSequenceInput},
-    parameters={'n_threads': Threads,
-                'parttree': Bool,
+    parameters={**mafft_params,
                 'addfragments': Bool,
-                'keeplength': Bool,
-                'large': Bool},
+                'keeplength': Bool},
     outputs=[('expanded_alignment', T_GenericAlignedSequenceOutput)],
     input_descriptions={'alignment': 'The alignment to which '
                                      'sequences should be added.',
                         'sequences': 'The sequences to be added.'},
     parameter_descriptions={
-        'n_threads': 'The number of threads. (Use `auto` to automatically use '
-                     'all available cores)',
-        'parttree': 'This flag is required if the number of sequences being '
-                    'aligned are larger than 1000000. Disabled by default',
+        **mafft_param_descriptions,
         'addfragments': 'Optimize for the addition of short sequence '
                         'fragments (for example, primer or amplicon '
                         'sequences). If not set, default sequence addition '
@@ -103,12 +218,7 @@ plugin.methods.register_function(
                       'Any added sequence that would otherwise introduce new '
                       'insertions into the alignment, will have those '
                       'insertions deleted, to preserve original alignment '
-                      'length.',
-        'large': 'This flag is required when aligning very large datasets '
-                 'that do not otherwise fit into memory. Temporary data is '
-                 'then stored in files, instead of RAM. The --use-cache '
-                 'flag specifies the storage location of the temporary files '
-                 'created. By default, $TMP/qiime2/ is used.'},
+                      'length.'},
     output_descriptions={
         'expanded_alignment': 'Alignment containing the provided aligned and '
                               'unaligned sequences.'},
@@ -149,4 +259,31 @@ plugin.methods.register_function(
     citations=[citations['lane1991']]
 )
 
-importlib.import_module("q2_alignment.types._transformer")
+importlib.import_module("q2_alignment.types._transformers")
+
+# Registrations
+plugin.register_semantic_types(
+    Orthogroups,
+    DNASequences,
+    ProteinSequences,
+)
+
+plugin.register_semantic_type_to_format(
+    semantic_type=Orthogroups[DNASequences],
+    artifact_format=GenesDirectoryFormat
+)
+
+plugin.register_semantic_type_to_format(
+    semantic_type=Orthogroups[AlignedDNASequences],
+    artifact_format=GenesDirectoryFormat
+)
+
+plugin.register_semantic_type_to_format(
+    semantic_type=Orthogroups[ProteinSequences],
+    artifact_format=ProteinsDirectoryFormat
+)
+
+plugin.register_semantic_type_to_format(
+    semantic_type=Orthogroups[AlignedProteinSequences],
+    artifact_format=GenesDirectoryFormat
+)

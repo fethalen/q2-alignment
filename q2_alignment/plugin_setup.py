@@ -145,9 +145,9 @@ plugin.methods.register_function(
 
 plugin.methods.register_function(
     function=q2_alignment.partition.collate_orthogroup_msas,
-    inputs={"alignment_sets": Collection[T_MatchAlignedSequenceSets]},
+    inputs={"alignment_sets": Collection[T_MatchAlignedSequenceType]},
     parameters={},
-    outputs={"collated_alignments": T_MatchAlignedSequenceSets},
+    outputs={"collated_alignments": T_MatchAlignedSequenceType},
     name="Collates multiple alignment directories into one.",
     description="Collates multiple alignment directories into one.",
     input_descriptions={

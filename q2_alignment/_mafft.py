@@ -226,6 +226,8 @@ def align_orthogroups(
         partition_action_name = "partition_orthogroup_dna_sequences"
     elif sequence_sets.type <= Orthogroups[ProteinSequences]:
         partition_action_name = "partition_orthogroup_protein_sequences"
+    else:
+        raise TypeError("Unsupported sequence_sets type")
 
     collate_orthogroup_msas = ctx.get_action(
         "alignment", "collate_orthogroup_msas"
@@ -240,9 +242,15 @@ def align_orthogroups(
         num_partitions,
     )
     for sequence_set in partitioned_orthogroup_sequences.values():
-        sequence_set_fp = str(sequence_set)
+        if sequence_sets.type <= Orthogroups[DNASequences]:
+            sequence_set = sequence_set.view(DNAFASTAFormat)
+        elif sequence_sets.type <= Orthogroups[ProteinSequences]:
+            sequence_set = sequence_set.view(ProteinFASTAFormat)
+        else:
+            raise TypeError("Unsupported sequence_sets type")
+
         mafft_result = mafft(
-            sequence_set_fp,
+            sequence_set,
             n_threads,
             parttree,
             large,
